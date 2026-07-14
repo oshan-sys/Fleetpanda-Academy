@@ -48,3 +48,6 @@ dev.db-journal
 
 # prisma generated client
 /src/generated/
+
+# local claude settings
+.claude/settings.local.json
