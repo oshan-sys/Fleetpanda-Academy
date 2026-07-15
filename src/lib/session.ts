@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 
@@ -9,11 +10,15 @@ export interface SessionUser {
   image?: string | null;
 }
 
-export async function getSessionUser(): Promise<SessionUser | null> {
-  const session = await auth();
-  if (!session?.user?.id) return null;
-  return session.user as SessionUser;
-}
+// cache() dedupes the session DB lookup within a single request —
+// layout and page both call this, but only one query is issued.
+export const getSessionUser = cache(
+  async (): Promise<SessionUser | null> => {
+    const session = await auth();
+    if (!session?.user?.id) return null;
+    return session.user as SessionUser;
+  }
+);
 
 /** For pages: redirects to /signin when not authenticated. */
 export async function requireUser(): Promise<SessionUser> {

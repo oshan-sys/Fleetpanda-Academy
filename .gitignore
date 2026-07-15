@@ -51,3 +51,6 @@ dev.db-journal
 
 # local claude settings
 .claude/settings.local.json
+
+.vercel
+.env*
