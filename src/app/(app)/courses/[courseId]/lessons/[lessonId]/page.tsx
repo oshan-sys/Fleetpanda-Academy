@@ -2,6 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireUser } from "@/lib/session";
 import { getAccessibleCourse, completedLessonIds } from "@/lib/access";
+import { prisma } from "@/lib/prisma";
+import type { QuizData } from "@/lib/googleForms";
 import LessonContent from "@/components/LessonContent";
 import MarkCompleteButton from "@/components/MarkCompleteButton";
 import TypeBadge from "@/components/TypeBadge";
@@ -28,6 +30,31 @@ export default async function LessonPage({
   const next = flat[idx + 1] ?? null;
   const prev = flat[idx - 1] ?? null;
   const isComplete = done.has(lesson.id);
+
+  // Native quiz: strip the answer key before anything reaches the client,
+  // and load the learner's previous attempt.
+  let quiz = null;
+  let previousScore: number | null = null;
+  if (lesson.quizData) {
+    const data = lesson.quizData as unknown as QuizData;
+    quiz = {
+      title: data.title,
+      totalPoints: data.totalPoints,
+      questions: data.questions.map((q) => ({
+        id: q.id,
+        title: q.title,
+        type: q.type,
+        required: q.required,
+        options: q.options,
+        points: q.points,
+      })),
+    };
+    const submission = await prisma.quizSubmission.findUnique({
+      where: { lessonId_userId: { lessonId: lesson.id, userId: user.id } },
+      select: { score: true },
+    });
+    previousScore = submission?.score ?? null;
+  }
 
   return (
     <div className="flex min-h-screen">
@@ -57,6 +84,8 @@ export default async function LessonPage({
               loomUrl={lesson.loomUrl}
               formUrl={lesson.formUrl}
               formResponderUri={lesson.formResponderUri}
+              quiz={quiz}
+              previousScore={previousScore}
             />
           </div>
 

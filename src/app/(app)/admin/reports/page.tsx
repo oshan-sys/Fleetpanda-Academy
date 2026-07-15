@@ -1,5 +1,6 @@
 import { requireAdminPage } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@/generated/prisma/client";
 import { ProgressBar } from "@/components/ProgressBar";
 import { getGoogleAccessToken } from "@/lib/googleDrive";
 import { getFormInfo, listFormResponses } from "@/lib/googleForms";
@@ -22,21 +23,52 @@ async function buildQuizReports(
   users: { id: string; name: string | null; email: string | null }[]
 ): Promise<{ reports: QuizReport[]; tokenMissing: boolean }> {
   const quizLessons = await prisma.lesson.findMany({
-    where: { formId: { not: null } },
-    include: { module: { include: { course: true } } },
+    where: {
+      OR: [{ quizData: { not: Prisma.DbNull } }, { formId: { not: null } }],
+    },
+    include: {
+      module: { include: { course: true } },
+      submissions: {
+        include: { user: { select: { name: true, email: true } } },
+        orderBy: { updatedAt: "desc" },
+      },
+    },
     orderBy: { title: "asc" },
   });
   if (quizLessons.length === 0) return { reports: [], tokenMissing: false };
 
+  // Native quizzes (imported into the app): read submissions from our DB.
+  const native = quizLessons
+    .filter((l) => l.quizData)
+    .map((lesson): QuizReport => {
+      const quiz = lesson.quizData as unknown as { totalPoints: number };
+      return {
+        lessonTitle: lesson.title,
+        courseTitle: lesson.module.course.title,
+        totalPoints: quiz.totalPoints || null,
+        rows: lesson.submissions.map((s) => ({
+          name: s.user.name,
+          email: s.user.email ?? "",
+          score: s.score,
+          submittedAt: s.updatedAt.toISOString(),
+        })),
+      };
+    });
+
+  // Legacy Google-Form lessons (linked before native import existed):
+  // pull responses via the Forms API with the viewing admin's token.
+  const legacy = quizLessons.filter((l) => !l.quizData && l.formId);
+  if (legacy.length === 0) return { reports: native, tokenMissing: false };
+
   const token = await getGoogleAccessToken(adminId);
-  if (!token) return { reports: [], tokenMissing: true };
+  if (!token) return { reports: native, tokenMissing: true };
 
   const usersByEmail = new Map(
     users.filter((u) => u.email).map((u) => [u.email!.toLowerCase(), u])
   );
 
-  const reports = await Promise.all(
-    quizLessons.map(async (lesson): Promise<QuizReport> => {
+  const legacyReports = await Promise.all(
+    legacy.map(async (lesson): Promise<QuizReport> => {
       const base = {
         lessonTitle: lesson.title,
         courseTitle: lesson.module.course.title,
@@ -71,7 +103,7 @@ async function buildQuizReports(
       };
     })
   );
-  return { reports, tokenMissing: false };
+  return { reports: [...native, ...legacyReports], tokenMissing: false };
 }
 
 export default async function ReportsPage() {

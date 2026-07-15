@@ -21,6 +21,7 @@ model User {
   sessions      Session[]
   assignments   Assignment[]
   progress      Progress[]
+  submissions   QuizSubmission[]
 }
 
 model Account {
@@ -82,20 +83,37 @@ model Module {
 }
 
 model Lesson {
-  id               String     @id @default(cuid())
+  id               String           @id @default(cuid())
   moduleId         String
   title            String
-  order            Int        @default(0)
-  type             String     @default("READING") // "READING" | "VIDEO" | "MIXED" | "QUIZ"
+  order            Int              @default(0)
+  type             String           @default("READING") // "READING" | "VIDEO" | "MIXED" | "QUIZ"
   docUrl           String?
   loomUrl          String?
   formUrl          String? // Google Form link as pasted by the admin
-  formId           String? // real form id (from edit links) — enables API results
-  formResponderUri String? // public respond URL used for the iframe embed
-  module           Module     @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  formId           String? // real form id (from edit links) — enables API access
+  formResponderUri String? // public respond URL (embed/open fallback)
+  quizData         Json? // imported quiz: questions + answer key (server-only)
+  module           Module           @relation(fields: [moduleId], references: [id], onDelete: Cascade)
   progress         Progress[]
+  submissions      QuizSubmission[]
 
   @@index([moduleId, order])
+}
+
+model QuizSubmission {
+  id          String   @id @default(cuid())
+  lessonId    String
+  userId      String
+  answers     Json
+  score       Int      @default(0)
+  totalPoints Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  lesson      Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([lessonId, userId])
 }
 
 // A course with zero Assignment rows is open to everyone.

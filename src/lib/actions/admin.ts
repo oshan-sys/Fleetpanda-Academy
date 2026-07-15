@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@/generated/prisma/client";
 import { assertAdmin } from "@/lib/session";
 import { lessonTypeFor, parseGoogleFormUrl } from "@/lib/content";
 import { getGoogleAccessToken } from "@/lib/googleDrive";
@@ -114,35 +115,59 @@ export async function updateLesson(
     formUrl?: string | null;
     formId?: string | null;
     formResponderUri?: string | null;
+    quizData?: Prisma.InputJsonValue | typeof Prisma.DbNull;
   } = {};
 
   if (data.formUrl !== undefined) {
     if (!data.formUrl) {
-      formFields = { formUrl: null, formId: null, formResponderUri: null };
+      formFields = {
+        formUrl: null,
+        formId: null,
+        formResponderUri: null,
+        quizData: Prisma.DbNull,
+      };
     } else {
       const parsed = parseGoogleFormUrl(data.formUrl);
       formFields = {
         formUrl: data.formUrl,
         formId: parsed?.formId ?? null,
         formResponderUri: parsed?.responderUri ?? null,
+        quizData: Prisma.DbNull,
       };
       if (parsed?.formId) {
-        // Edit link: look up the public respond URL with the admin's token.
+        // Edit link: import the quiz (questions + answer key) with the
+        // admin's token so the app can render and grade it natively.
         const token = await getGoogleAccessToken(me.id);
         const info = token ? await getFormInfo(token, parsed.formId) : null;
         if (info?.ok) {
           formFields.formResponderUri = info.form.responderUri;
-          if (!info.form.isQuiz) {
+          if (info.form.quiz.questions.length > 0) {
+            formFields.quizData = info.form
+              .quiz as unknown as Prisma.InputJsonValue;
+            const bits = [
+              `Imported "${info.form.title}" — ${info.form.quiz.questions.length} questions, ${info.form.quiz.totalPoints} points. Learners take it right on the lesson page.`,
+            ];
+            if (!info.form.isQuiz) {
+              bits.push(
+                "The form isn't in quiz mode (Settings → Make this a quiz), so nothing can be scored yet — re-paste the link after changing it."
+              );
+            } else if (info.form.ungradedCount > 0) {
+              bits.push(
+                `${info.form.ungradedCount} question(s) have points but no answer key and will need no grading or a key added in the form (then re-paste).`
+              );
+            }
+            warning = bits.join(" ");
+          } else {
             warning =
-              "Saved — but this form isn't in quiz mode, so it won't have scores. In the form: Settings → Make this a quiz.";
+              "The form has no importable questions (only unsupported types like grids or file uploads) — learners get the embedded form instead.";
           }
         } else {
           warning =
-            "Saved, but couldn't reach the form via the Forms API — learners get an 'open in new tab' link instead of an inline quiz, and results won't show in Reports. Check that the Google Forms API is enabled and you have edit access to the form (then re-paste the link).";
+            "Saved, but the form couldn't be imported — learners get an 'open in new tab' link. Check that the Google Forms API is enabled and you have edit access to the form, then re-paste the link.";
         }
       } else if (parsed?.responderUri) {
         warning =
-          "Saved as a published link — the quiz will embed, but results can't be pulled into Reports. Paste the form's EDIT link (docs.google.com/forms/d/…/edit) to enable results.";
+          "Saved as a published link — the quiz embeds as a Google Form, but can't be imported for in-app taking or Reports. Paste the form's EDIT link (docs.google.com/forms/d/…/edit) instead.";
       }
     }
   }

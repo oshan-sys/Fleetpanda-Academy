@@ -2,6 +2,24 @@
 // who pasted the form, or the admin viewing reports) — the app has no
 // service account.
 
+export interface QuizQuestion {
+  id: string;
+  title: string;
+  type: "RADIO" | "CHECKBOX" | "DROP_DOWN" | "TEXT" | "PARAGRAPH";
+  required: boolean;
+  options?: string[];
+  points: number;
+  /** Answer key — server-only, never sent to the client. */
+  correct?: string[];
+}
+
+export interface QuizData {
+  title: string;
+  questions: QuizQuestion[];
+  totalPoints: number;
+  importedAt: string;
+}
+
 export interface FormInfo {
   formId: string;
   title: string;
@@ -9,6 +27,10 @@ export interface FormInfo {
   /** Sum of point values across graded questions; 0 when not a quiz. */
   totalPoints: number;
   isQuiz: boolean;
+  /** Importable quiz structure (questions the app can render natively). */
+  quiz: QuizData;
+  /** Count of questions with no answer key (can't be auto-graded). */
+  ungradedCount: number;
 }
 
 export interface FormResponseRow {
@@ -23,8 +45,73 @@ interface FormsApiForm {
   responderUri?: string;
   settings?: { quizSettings?: { isQuiz?: boolean } };
   items?: {
-    questionItem?: { question?: { grading?: { pointValue?: number } } };
+    itemId?: string;
+    title?: string;
+    questionItem?: {
+      question?: {
+        questionId?: string;
+        required?: boolean;
+        grading?: {
+          pointValue?: number;
+          correctAnswers?: { answers?: { value?: string }[] };
+        };
+        choiceQuestion?: {
+          type?: "RADIO" | "CHECKBOX" | "DROP_DOWN";
+          options?: { value?: string; isOther?: boolean }[];
+        };
+        textQuestion?: { paragraph?: boolean };
+      };
+    };
   }[];
+}
+
+function parseQuiz(data: FormsApiForm): { quiz: QuizData; ungradedCount: number } {
+  const questions: QuizQuestion[] = [];
+  let ungradedCount = 0;
+
+  for (const item of data.items ?? []) {
+    const q = item.questionItem?.question;
+    if (!q?.questionId) continue; // skip non-question items (text, images…)
+
+    let type: QuizQuestion["type"];
+    let options: string[] | undefined;
+    if (q.choiceQuestion) {
+      type = q.choiceQuestion.type ?? "RADIO";
+      options = (q.choiceQuestion.options ?? [])
+        .filter((o) => !o.isOther && o.value)
+        .map((o) => o.value!);
+    } else if (q.textQuestion) {
+      type = q.textQuestion.paragraph ? "PARAGRAPH" : "TEXT";
+    } else {
+      continue; // unsupported question kind (grid, scale, file upload…)
+    }
+
+    const correct = q.grading?.correctAnswers?.answers
+      ?.map((a) => a.value)
+      .filter((v): v is string => !!v);
+    const points = q.grading?.pointValue ?? 0;
+    if (!correct?.length && points > 0) ungradedCount++;
+
+    questions.push({
+      id: q.questionId,
+      title: item.title || "Untitled question",
+      type,
+      required: q.required ?? false,
+      options,
+      points,
+      correct: correct?.length ? correct : undefined,
+    });
+  }
+
+  return {
+    quiz: {
+      title: data.info?.title ?? data.info?.documentTitle ?? "Quiz",
+      questions,
+      totalPoints: questions.reduce((s, q) => s + q.points, 0),
+      importedAt: new Date().toISOString(),
+    },
+    ungradedCount,
+  };
 }
 
 export async function getFormInfo(
@@ -39,19 +126,17 @@ export async function getFormInfo(
     return { ok: false, status: res.status, body: await res.text() };
   }
   const data: FormsApiForm = await res.json();
-  const totalPoints = (data.items ?? []).reduce(
-    (sum, item) =>
-      sum + (item.questionItem?.question?.grading?.pointValue ?? 0),
-    0
-  );
+  const { quiz, ungradedCount } = parseQuiz(data);
   return {
     ok: true,
     form: {
       formId: data.formId,
-      title: data.info?.title ?? data.info?.documentTitle ?? "Untitled form",
+      title: quiz.title,
       responderUri: data.responderUri ?? "",
-      totalPoints,
+      totalPoints: quiz.totalPoints,
       isQuiz: data.settings?.quizSettings?.isQuiz ?? false,
+      quiz,
+      ungradedCount,
     },
   };
 }

@@ -1,5 +1,6 @@
 import { parseGoogleDocUrl, parseLoomUrl } from "@/lib/content";
 import EmbedFrame from "@/components/EmbedFrame";
+import QuizPlayer, { type PlayerQuestion } from "@/components/QuizPlayer";
 
 export default function LessonContent({
   lessonId,
@@ -7,12 +8,16 @@ export default function LessonContent({
   loomUrl,
   formUrl,
   formResponderUri,
+  quiz,
+  previousScore,
 }: {
   lessonId: string;
   docUrl: string | null;
   loomUrl: string | null;
   formUrl: string | null;
   formResponderUri: string | null;
+  quiz: { title: string; totalPoints: number; questions: PlayerQuestion[] } | null;
+  previousScore: number | null;
 }) {
   const loom = loomUrl ? parseLoomUrl(loomUrl) : null;
   const doc = docUrl ? parseGoogleDocUrl(docUrl) : null;
@@ -50,7 +55,17 @@ export default function LessonContent({
         </div>
       )}
 
-      {formUrl && (
+      {quiz && (
+        <QuizPlayer
+          lessonId={lessonId}
+          title={quiz.title}
+          questions={quiz.questions}
+          totalPoints={quiz.totalPoints}
+          previousScore={previousScore}
+        />
+      )}
+
+      {formUrl && !quiz && (
         <div>
           {formEmbedSrc ? (
             <>

@@ -97,15 +97,21 @@ On a lesson, paste either link type into the single "Add content" field:
 - **Loom** — a `loom.com/share/<id>` link; the video id is extracted and
   embedded as `loom.com/embed/<id>`.
 - **Google Form (quiz)** — paste the form's **edit link**
-  (`docs.google.com/forms/d/<id>/edit`). The app looks up the public respond
-  URL via the Forms API (using the pasting admin's credentials), embeds the
-  quiz in the lesson, and pulls scored responses into **Reports**. Requires
-  the **Google Forms API** enabled in the Cloud project:
+  (`docs.google.com/forms/d/<id>/edit`). The app **imports the form's
+  questions and answer key** via the Forms API (using the pasting admin's
+  credentials) and renders the quiz **natively in the lesson page**:
+  learners answer in-app with no Google sign-in wall, grading happens
+  server-side against the imported answer key, submitting auto-completes
+  the lesson, and scores land in **Reports** straight from the app's
+  database. Author the form as a quiz (**Settings → Make this a quiz**)
+  with answer keys and point values; re-paste the link after editing the
+  form to re-import. Requires the **Google Forms API** enabled in the
+  Cloud project:
   <https://console.cloud.google.com/apis/library/forms.googleapis.com>.
-  In the form itself, turn on **Settings → Make this a quiz** and
-  **Responses → Collect email addresses** (needed to match results to
-  learners). Published `/forms/d/e/…` links also embed, but their results
-  can't be read via the API.
+  Supported question types: multiple choice, checkboxes, dropdown, short
+  answer, paragraph (paragraph answers aren't auto-graded). Published
+  `/forms/d/e/…` links fall back to a plain Google Form embed with
+  API-based results.
 
 A lesson with a form becomes **QUIZ**; one holding a doc and a video becomes
 **MIXED** — all automatic.
