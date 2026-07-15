@@ -2,14 +2,22 @@ import { parseGoogleDocUrl, parseLoomUrl } from "@/lib/content";
 import EmbedFrame from "@/components/EmbedFrame";
 
 export default function LessonContent({
+  lessonId,
   docUrl,
   loomUrl,
 }: {
+  lessonId: string;
   docUrl: string | null;
   loomUrl: string | null;
 }) {
   const loom = loomUrl ? parseLoomUrl(loomUrl) : null;
   const doc = docUrl ? parseGoogleDocUrl(docUrl) : null;
+  // Shareable docs are fetched server-side with the viewer's own Google
+  // credentials, so restricted docs render for anyone who can open them in
+  // Drive. Published (/pub) links embed directly — they're already public.
+  const docEmbedSrc = doc?.fileId
+    ? `/api/lessons/${lessonId}/doc`
+    : doc?.embedUrl;
 
   if (!loom && !doc) {
     return (
@@ -37,7 +45,7 @@ export default function LessonContent({
 
       {doc && (
         <div>
-          <EmbedFrame src={doc.embedUrl} title="Lesson document" kind="doc" />
+          <EmbedFrame src={docEmbedSrc!} title="Lesson document" kind="doc" />
           <a
             href={doc.openUrl}
             target="_blank"

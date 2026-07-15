@@ -85,10 +85,15 @@ Progress    — one row per user per completed lesson
 
 On a lesson, paste either link type into the single "Add content" field:
 
-- **Google Doc** — a shareable `/document/d/<id>/edit` link (embedded via
-  `/preview`) or a *File → Share → Publish to web* link (embedded with
-  `?embedded=true`). The lesson page always shows an **Open in Google Docs**
-  fallback in case sharing settings block the iframe.
+- **Google Doc** — a shareable `/document/d/<id>/edit` link or a *File →
+  Share → Publish to web* link. Shareable links are fetched **server-side
+  with the viewer's own Google credentials** (the app requests the
+  `drive.readonly` scope at sign-in) and rendered inline as a PDF, so
+  restricted docs display for anyone who can open them in Drive — no
+  sharing-settings changes needed. This requires the **Google Drive API**
+  to be enabled in the same Google Cloud project as the OAuth client:
+  <https://console.cloud.google.com/apis/library/drive.googleapis.com>.
+  The lesson page always shows an **Open in Google Docs** fallback.
 - **Loom** — a `loom.com/share/<id>` link; the video id is extracted and
   embedded as `loom.com/embed/<id>`.
 

@@ -51,7 +51,11 @@ export default async function LessonPage({
           </h1>
 
           <div className="mt-6">
-            <LessonContent docUrl={lesson.docUrl} loomUrl={lesson.loomUrl} />
+            <LessonContent
+              lessonId={lesson.id}
+              docUrl={lesson.docUrl}
+              loomUrl={lesson.loomUrl}
+            />
           </div>
 
           <div className="mt-8 flex items-center gap-4 border-t border-neutral-200 pt-6">

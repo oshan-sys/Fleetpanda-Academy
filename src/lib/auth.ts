@@ -14,13 +14,28 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: PrismaAdapter(prisma),
   session: { strategy: "database" },
   trustHost: true,
-  providers: [Google],
+  providers: [
+    Google({
+      authorization: {
+        params: {
+          // drive.readonly lets the app fetch lesson docs with the viewer's
+          // own Google access, so restricted docs render in-app for anyone
+          // who can open them in Drive.
+          scope:
+            "openid email profile https://www.googleapis.com/auth/drive.readonly",
+          access_type: "offline",
+          prompt: "consent",
+        },
+      },
+    }),
+  ],
   pages: { signIn: "/signin" },
   events: {
-    // Bootstrap admins: anyone listed in INITIAL_ADMIN_EMAILS becomes ADMIN on
-    // every sign-in, regardless of the current database value. This guarantees
-    // there is always at least one real admin without hand-editing the DB.
-    async signIn({ user }) {
+    async signIn({ user, account }) {
+      // Bootstrap admins: anyone listed in INITIAL_ADMIN_EMAILS becomes ADMIN
+      // on every sign-in, regardless of the current database value. This
+      // guarantees there is always at least one real admin without
+      // hand-editing the DB.
       if (
         user.id &&
         user.email &&
@@ -29,6 +44,19 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         await prisma.user.update({
           where: { id: user.id },
           data: { role: "ADMIN" },
+        });
+      }
+      // The adapter only stores tokens when the account is first linked —
+      // persist fresh ones on every sign-in so Drive access keeps working.
+      if (user.id && account?.provider === "google") {
+        await prisma.account.updateMany({
+          where: { userId: user.id, provider: "google" },
+          data: {
+            access_token: account.access_token,
+            expires_at: account.expires_at,
+            refresh_token: account.refresh_token ?? undefined,
+            scope: account.scope,
+          },
         });
       }
     },

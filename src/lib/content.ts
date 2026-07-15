@@ -11,6 +11,9 @@ export interface DocContent {
   kind: "doc";
   embedUrl: string;
   openUrl: string;
+  /** Drive file id — present for shareable /document/d/<id>/ links, which
+   * can be fetched server-side with the viewer's own Google credentials. */
+  fileId?: string;
 }
 
 export function parseLoomUrl(url: string): LoomContent | null {
@@ -45,6 +48,7 @@ export function parseGoogleDocUrl(url: string): DocContent | null {
       kind: "doc",
       embedUrl: `https://docs.google.com/document/d/${id}/preview`,
       openUrl: `https://docs.google.com/document/d/${id}/edit`,
+      fileId: id,
     };
   }
 
