@@ -1,4 +1,5 @@
 import { parseGoogleDocUrl, parseLoomUrl } from "@/lib/content";
+import EmbedFrame from "@/components/EmbedFrame";
 
 export default function LessonContent({
   docUrl,
@@ -22,16 +23,7 @@ export default function LessonContent({
     <div className="space-y-6">
       {loom && (
         <div>
-          <div className="overflow-hidden rounded-xl border border-neutral-200 bg-neutral-900">
-            <div className="relative w-full" style={{ paddingBottom: "56.25%" }}>
-              <iframe
-                src={loom.embedUrl}
-                allowFullScreen
-                className="absolute inset-0 h-full w-full"
-                title="Lesson video"
-              />
-            </div>
-          </div>
+          <EmbedFrame src={loom.embedUrl} title="Lesson video" kind="video" />
           <a
             href={loom.openUrl}
             target="_blank"
@@ -45,13 +37,7 @@ export default function LessonContent({
 
       {doc && (
         <div>
-          <div className="overflow-hidden rounded-xl border border-neutral-200 bg-white">
-            <iframe
-              src={doc.embedUrl}
-              className="h-[70vh] w-full"
-              title="Lesson document"
-            />
-          </div>
+          <EmbedFrame src={doc.embedUrl} title="Lesson document" kind="doc" />
           <a
             href={doc.openUrl}
             target="_blank"
