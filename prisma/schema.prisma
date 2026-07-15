@@ -82,15 +82,18 @@ model Module {
 }
 
 model Lesson {
-  id       String     @id @default(cuid())
-  moduleId String
-  title    String
-  order    Int        @default(0)
-  type     String     @default("READING") // "READING" | "VIDEO" | "MIXED"
-  docUrl   String?
-  loomUrl  String?
-  module   Module     @relation(fields: [moduleId], references: [id], onDelete: Cascade)
-  progress Progress[]
+  id               String     @id @default(cuid())
+  moduleId         String
+  title            String
+  order            Int        @default(0)
+  type             String     @default("READING") // "READING" | "VIDEO" | "MIXED" | "QUIZ"
+  docUrl           String?
+  loomUrl          String?
+  formUrl          String? // Google Form link as pasted by the admin
+  formId           String? // real form id (from edit links) — enables API results
+  formResponderUri String? // public respond URL used for the iframe embed
+  module           Module     @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  progress         Progress[]
 
   @@index([moduleId, order])
 }

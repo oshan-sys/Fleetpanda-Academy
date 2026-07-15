@@ -20,9 +20,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         params: {
           // drive.readonly lets the app fetch lesson docs with the viewer's
           // own Google access, so restricted docs render in-app for anyone
-          // who can open them in Drive.
+          // who can open them in Drive. The forms scopes let admins register
+          // quizzes by edit link and pull scored responses into Reports.
           scope:
-            "openid email profile https://www.googleapis.com/auth/drive.readonly",
+            "openid email profile https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/forms.body.readonly https://www.googleapis.com/auth/forms.responses.readonly",
           access_type: "offline",
           prompt: "consent",
         },

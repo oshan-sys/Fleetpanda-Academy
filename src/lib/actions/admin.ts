@@ -4,7 +4,9 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { assertAdmin } from "@/lib/session";
-import { lessonTypeFor } from "@/lib/content";
+import { lessonTypeFor, parseGoogleFormUrl } from "@/lib/content";
+import { getGoogleAccessToken } from "@/lib/googleDrive";
+import { getFormInfo } from "@/lib/googleForms";
 
 function revalidateCourse(courseId: string) {
   revalidatePath("/admin/courses");
@@ -91,20 +93,70 @@ export async function createLesson(moduleId: string) {
 
 export async function updateLesson(
   lessonId: string,
-  data: { title?: string; docUrl?: string | null; loomUrl?: string | null }
-) {
-  await assertAdmin();
+  data: {
+    title?: string;
+    docUrl?: string | null;
+    loomUrl?: string | null;
+    formUrl?: string | null;
+  }
+): Promise<{ warning?: string } | void> {
+  const me = await assertAdmin();
   const current = await prisma.lesson.findUniqueOrThrow({
     where: { id: lessonId },
     include: { module: true },
   });
   const docUrl = data.docUrl !== undefined ? data.docUrl : current.docUrl;
   const loomUrl = data.loomUrl !== undefined ? data.loomUrl : current.loomUrl;
+  const formUrl = data.formUrl !== undefined ? data.formUrl : current.formUrl;
+
+  let warning: string | undefined;
+  let formFields: {
+    formUrl?: string | null;
+    formId?: string | null;
+    formResponderUri?: string | null;
+  } = {};
+
+  if (data.formUrl !== undefined) {
+    if (!data.formUrl) {
+      formFields = { formUrl: null, formId: null, formResponderUri: null };
+    } else {
+      const parsed = parseGoogleFormUrl(data.formUrl);
+      formFields = {
+        formUrl: data.formUrl,
+        formId: parsed?.formId ?? null,
+        formResponderUri: parsed?.responderUri ?? null,
+      };
+      if (parsed?.formId) {
+        // Edit link: look up the public respond URL with the admin's token.
+        const token = await getGoogleAccessToken(me.id);
+        const info = token ? await getFormInfo(token, parsed.formId) : null;
+        if (info?.ok) {
+          formFields.formResponderUri = info.form.responderUri;
+          if (!info.form.isQuiz) {
+            warning =
+              "Saved — but this form isn't in quiz mode, so it won't have scores. In the form: Settings → Make this a quiz.";
+          }
+        } else {
+          warning =
+            "Saved, but couldn't reach the form via the Forms API — learners get an 'open in new tab' link instead of an inline quiz, and results won't show in Reports. Check that the Google Forms API is enabled and you have edit access to the form (then re-paste the link).";
+        }
+      } else if (parsed?.responderUri) {
+        warning =
+          "Saved as a published link — the quiz will embed, but results can't be pulled into Reports. Paste the form's EDIT link (docs.google.com/forms/d/…/edit) to enable results.";
+      }
+    }
+  }
+
   await prisma.lesson.update({
     where: { id: lessonId },
-    data: { ...data, type: lessonTypeFor(docUrl, loomUrl) },
+    data: {
+      ...data,
+      ...formFields,
+      type: lessonTypeFor(docUrl, loomUrl, formUrl),
+    },
   });
   revalidateCourse(current.module.courseId);
+  return warning ? { warning } : undefined;
 }
 
 export async function deleteLesson(lessonId: string) {

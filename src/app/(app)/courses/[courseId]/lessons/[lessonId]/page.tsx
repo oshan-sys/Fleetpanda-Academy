@@ -55,6 +55,8 @@ export default async function LessonPage({
               lessonId={lesson.id}
               docUrl={lesson.docUrl}
               loomUrl={lesson.loomUrl}
+              formUrl={lesson.formUrl}
+              formResponderUri={lesson.formResponderUri}
             />
           </div>
 

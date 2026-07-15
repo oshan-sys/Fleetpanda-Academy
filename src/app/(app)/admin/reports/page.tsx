@@ -1,9 +1,81 @@
 import { requireAdminPage } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { ProgressBar } from "@/components/ProgressBar";
+import { getGoogleAccessToken } from "@/lib/googleDrive";
+import { getFormInfo, listFormResponses } from "@/lib/googleForms";
+
+interface QuizReport {
+  lessonTitle: string;
+  courseTitle: string;
+  totalPoints: number | null;
+  error?: string;
+  rows: {
+    name: string | null;
+    email: string;
+    score: number | null;
+    submittedAt: string;
+  }[];
+}
+
+async function buildQuizReports(
+  adminId: string,
+  users: { id: string; name: string | null; email: string | null }[]
+): Promise<{ reports: QuizReport[]; tokenMissing: boolean }> {
+  const quizLessons = await prisma.lesson.findMany({
+    where: { formId: { not: null } },
+    include: { module: { include: { course: true } } },
+    orderBy: { title: "asc" },
+  });
+  if (quizLessons.length === 0) return { reports: [], tokenMissing: false };
+
+  const token = await getGoogleAccessToken(adminId);
+  if (!token) return { reports: [], tokenMissing: true };
+
+  const usersByEmail = new Map(
+    users.filter((u) => u.email).map((u) => [u.email!.toLowerCase(), u])
+  );
+
+  const reports = await Promise.all(
+    quizLessons.map(async (lesson): Promise<QuizReport> => {
+      const base = {
+        lessonTitle: lesson.title,
+        courseTitle: lesson.module.course.title,
+      };
+      const [info, resp] = await Promise.all([
+        getFormInfo(token, lesson.formId!),
+        listFormResponses(token, lesson.formId!),
+      ]);
+      if (!resp.ok) {
+        return {
+          ...base,
+          totalPoints: null,
+          rows: [],
+          error:
+            resp.status === 403
+              ? "No access to this form's responses — the form owner must add you as a collaborator (or view results in Google Forms directly)."
+              : `Couldn't load responses (Google returned ${resp.status}).`,
+        };
+      }
+      return {
+        ...base,
+        totalPoints: info.ok ? info.form.totalPoints : null,
+        rows: resp.responses.map((r) => {
+          const user = r.email ? usersByEmail.get(r.email) : undefined;
+          return {
+            name: user?.name ?? null,
+            email: r.email ?? "(no email collected)",
+            score: r.score,
+            submittedAt: r.submittedAt,
+          };
+        }),
+      };
+    })
+  );
+  return { reports, tokenMissing: false };
+}
 
 export default async function ReportsPage() {
-  await requireAdminPage();
+  const me = await requireAdminPage();
 
   const [courses, users, progress] = await Promise.all([
     prisma.course.findMany({
@@ -100,6 +172,11 @@ export default async function ReportsPage() {
     }
     return { user: u, visibleLessons, completed, coursesStarted, coursesCompleted };
   });
+
+  const { reports: quizReports, tokenMissing } = await buildQuizReports(
+    me.id,
+    users
+  );
 
   // Most / least completed lessons across all courses.
   const allLessons = courses.flatMap((c) =>
@@ -233,6 +310,97 @@ export default async function ReportsPage() {
           </table>
         </div>
       </section>
+
+      {/* Quiz results */}
+      {(quizReports.length > 0 || tokenMissing) && (
+        <section className="mt-10">
+          <h2 className="mb-3 text-base font-semibold tracking-tight">
+            Quiz results
+          </h2>
+          {tokenMissing ? (
+            <div className="rounded-xl border border-dashed border-neutral-300 bg-white p-8 text-center text-sm text-neutral-500">
+              Sign out and sign back in to grant quiz-results access, then
+              reload this page.
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {quizReports.map((q, i) => (
+                <div
+                  key={i}
+                  className="overflow-hidden rounded-xl border border-neutral-200 bg-white"
+                >
+                  <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-neutral-100 px-5 py-3.5">
+                    <span className="text-[15px] font-semibold">
+                      {q.lessonTitle}
+                    </span>
+                    <span className="text-xs text-neutral-400">
+                      {q.courseTitle}
+                    </span>
+                    <span className="ml-auto font-mono text-xs text-neutral-500">
+                      {q.rows.length}{" "}
+                      {q.rows.length === 1 ? "submission" : "submissions"}
+                      {q.totalPoints ? ` · out of ${q.totalPoints} pts` : ""}
+                    </span>
+                  </div>
+                  {q.error ? (
+                    <div className="px-5 py-4 text-[13px] text-amber-700">
+                      {q.error}
+                    </div>
+                  ) : q.rows.length === 0 ? (
+                    <div className="px-5 py-4 text-[13px] text-neutral-400">
+                      No submissions yet.
+                    </div>
+                  ) : (
+                    <table className="w-full text-left text-sm">
+                      <tbody>
+                        {q.rows.map((r, ri) => (
+                          <tr
+                            key={ri}
+                            className="border-t border-neutral-100 first:border-t-0"
+                          >
+                            <td className="px-5 py-2.5">
+                              <span className="font-medium">
+                                {r.name ?? "Not a registered learner"}
+                              </span>
+                              <span className="ml-2 text-xs text-neutral-500">
+                                {r.email}
+                              </span>
+                            </td>
+                            <td className="px-5 py-2.5 text-right font-mono text-[13px]">
+                              {r.score !== null ? (
+                                <span
+                                  className={
+                                    q.totalPoints &&
+                                    r.score >= q.totalPoints * 0.7
+                                      ? "text-pine-700"
+                                      : "text-neutral-700"
+                                  }
+                                >
+                                  {r.score}
+                                  {q.totalPoints ? ` / ${q.totalPoints}` : ""}
+                                </span>
+                              ) : (
+                                <span className="text-neutral-400">
+                                  ungraded
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-5 py-2.5 text-right font-mono text-[11px] text-neutral-400">
+                              {r.submittedAt
+                                ? new Date(r.submittedAt).toLocaleDateString()
+                                : ""}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
       {/* Most / least completed */}
       <section className="mt-10 grid gap-4 lg:grid-cols-2">

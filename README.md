@@ -96,8 +96,19 @@ On a lesson, paste either link type into the single "Add content" field:
   The lesson page always shows an **Open in Google Docs** fallback.
 - **Loom** — a `loom.com/share/<id>` link; the video id is extracted and
   embedded as `loom.com/embed/<id>`.
+- **Google Form (quiz)** — paste the form's **edit link**
+  (`docs.google.com/forms/d/<id>/edit`). The app looks up the public respond
+  URL via the Forms API (using the pasting admin's credentials), embeds the
+  quiz in the lesson, and pulls scored responses into **Reports**. Requires
+  the **Google Forms API** enabled in the Cloud project:
+  <https://console.cloud.google.com/apis/library/forms.googleapis.com>.
+  In the form itself, turn on **Settings → Make this a quiz** and
+  **Responses → Collect email addresses** (needed to match results to
+  learners). Published `/forms/d/e/…` links also embed, but their results
+  can't be read via the API.
 
-A lesson holding both becomes **MIXED** automatically.
+A lesson with a form becomes **QUIZ**; one holding a doc and a video becomes
+**MIXED** — all automatic.
 
 ### Seed data
 

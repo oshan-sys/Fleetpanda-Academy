@@ -55,17 +55,53 @@ export function parseGoogleDocUrl(url: string): DocContent | null {
   return null;
 }
 
+export interface FormContent {
+  kind: "form";
+  /** Real form id — only derivable from edit links; enables API results. */
+  formId?: string;
+  /** Direct respond/embed URL — only derivable from published links. */
+  responderUri?: string;
+  openUrl: string;
+}
+
+export function parseGoogleFormUrl(url: string): FormContent | null {
+  // Published "send" links: /forms/d/e/<pubId>/viewform
+  const pub = url.match(
+    /https:\/\/docs\.google\.com\/forms\/d\/e\/([^/]+)/
+  );
+  if (pub) {
+    const base = `https://docs.google.com/forms/d/e/${pub[1]}/viewform`;
+    return { kind: "form", responderUri: base, openUrl: base };
+  }
+  // Edit links: /forms/d/<formId>/edit — the id the Forms API understands
+  const edit = url.match(/https:\/\/docs\.google\.com\/forms\/d\/([^/]+)/);
+  if (edit) {
+    return { kind: "form", formId: edit[1], openUrl: url };
+  }
+  // Short links (forms.gle/...) can't be resolved without a request
+  return null;
+}
+
 /** Auto-detect what a pasted link is. */
 export function detectContentLink(
   url: string
-): LoomContent | DocContent | null {
+): LoomContent | DocContent | FormContent | null {
   const trimmed = url.trim();
   if (!trimmed) return null;
-  return parseLoomUrl(trimmed) ?? parseGoogleDocUrl(trimmed);
+  return (
+    parseLoomUrl(trimmed) ??
+    parseGoogleFormUrl(trimmed) ??
+    parseGoogleDocUrl(trimmed)
+  );
 }
 
 /** Lesson type derived from which content URLs are present. */
-export function lessonTypeFor(docUrl: string | null, loomUrl: string | null) {
+export function lessonTypeFor(
+  docUrl: string | null,
+  loomUrl: string | null,
+  formUrl?: string | null
+) {
+  if (formUrl) return "QUIZ";
   if (docUrl && loomUrl) return "MIXED";
   if (loomUrl) return "VIDEO";
   return "READING";

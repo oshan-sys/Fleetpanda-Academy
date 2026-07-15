@@ -25,6 +25,7 @@ interface LessonData {
   type: string;
   docUrl: string | null;
   loomUrl: string | null;
+  formUrl: string | null;
 }
 
 interface ModuleData {
@@ -328,17 +329,24 @@ function LessonRow({
 }) {
   const [linkInput, setLinkInput] = useState("");
   const [linkError, setLinkError] = useState<string | null>(null);
+  const [linkNotice, setLinkNotice] = useState<string | null>(null);
 
   function addLink() {
     const parsed = detectContentLink(linkInput);
     if (!parsed) {
-      setLinkError("Not a recognized Google Doc or Loom link.");
+      setLinkError("Not a recognized Google Doc, Loom, or Google Form link.");
       return;
     }
     setLinkError(null);
+    setLinkNotice(null);
     setLinkInput("");
     if (parsed.kind === "loom") {
       save(() => updateLesson(lesson.id, { loomUrl: parsed.openUrl }));
+    } else if (parsed.kind === "form") {
+      save(async () => {
+        const res = await updateLesson(lesson.id, { formUrl: parsed.openUrl });
+        if (res?.warning) setLinkNotice(res.warning);
+      });
     } else {
       save(() => updateLesson(lesson.id, { docUrl: parsed.openUrl }));
     }
@@ -368,7 +376,13 @@ function LessonRow({
           className="min-w-0 flex-1 rounded-md border border-transparent px-2 py-1 text-sm outline-none transition hover:border-neutral-200 focus:border-brand-600 focus:ring-2 focus:ring-brand-600/20"
         />
         <span className="shrink-0 rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[10px] text-neutral-500">
-          {lesson.type === "VIDEO" ? "Video" : lesson.type === "MIXED" ? "Doc + Video" : "Reading"}
+          {lesson.type === "QUIZ"
+            ? "Quiz"
+            : lesson.type === "VIDEO"
+              ? "Video"
+              : lesson.type === "MIXED"
+                ? "Doc + Video"
+                : "Reading"}
         </span>
         <button
           onClick={() => {
@@ -395,7 +409,16 @@ function LessonRow({
             onRemove={() => save(() => updateLesson(lesson.id, { loomUrl: null }))}
           />
         )}
-        {(!lesson.docUrl || !lesson.loomUrl) && (
+        {lesson.formUrl && (
+          <ContentChip
+            label="Google Form quiz"
+            onRemove={() => {
+              setLinkNotice(null);
+              save(() => updateLesson(lesson.id, { formUrl: null }));
+            }}
+          />
+        )}
+        {(!lesson.docUrl || !lesson.loomUrl || !lesson.formUrl) && (
           <div className="flex min-w-0 flex-1 items-center gap-1.5">
             <input
               value={linkInput}
@@ -404,7 +427,7 @@ function LessonRow({
                 setLinkError(null);
               }}
               onKeyDown={(e) => e.key === "Enter" && addLink()}
-              placeholder="Paste a Google Doc or Loom link…"
+              placeholder="Paste a Google Doc, Loom, or Google Form (quiz) link…"
               className="w-full min-w-40 flex-1 rounded-md border border-neutral-200 px-2.5 py-1.5 text-[12px] outline-none focus:border-brand-600 focus:ring-2 focus:ring-brand-600/20"
             />
             <button
@@ -419,6 +442,9 @@ function LessonRow({
       </div>
       {linkError && (
         <div className="mt-1.5 ml-8 text-[12px] text-red-600">{linkError}</div>
+      )}
+      {linkNotice && (
+        <div className="mt-1.5 ml-8 text-[12px] text-amber-700">{linkNotice}</div>
       )}
     </div>
   );

@@ -52,6 +52,7 @@ export default async function AdminCourseEditPage({
               type: l.type,
               docUrl: l.docUrl,
               loomUrl: l.loomUrl,
+              formUrl: l.formUrl,
             })),
           })),
           assignedUsers: course.assignments.map((a) => ({
