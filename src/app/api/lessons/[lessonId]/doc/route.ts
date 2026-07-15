@@ -57,6 +57,22 @@ export async function GET(
 
   const upstream = await exportDocAsPdf(token, doc.fileId);
   if (!upstream.ok) {
+    const errBody = await upstream.text();
+
+    if (/has not been used in project|SERVICE_DISABLED|accessNotConfigured/.test(errBody)) {
+      return errorPage(
+        "Google Drive API is not enabled",
+        "An admin needs to enable the Google Drive API in the app's Google Cloud project (APIs & Services → Library → Google Drive API → Enable). Until then, use the link below.",
+        doc.openUrl
+      );
+    }
+    if (/ACCESS_TOKEN_SCOPE_INSUFFICIENT|insufficient/i.test(errBody)) {
+      return errorPage(
+        "Reconnect Google to view this document",
+        "Your sign-in predates document access. Sign out and sign back in to grant it, or open the doc directly.",
+        doc.openUrl
+      );
+    }
     if (upstream.status === 403 || upstream.status === 404) {
       return errorPage(
         "You don't have access to this document",
