@@ -2,7 +2,12 @@ import { requireAdminPage } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
 import { ProgressBar } from "@/components/ProgressBar";
-import { Donut, HBarChart, ScoreHistogram } from "@/components/charts";
+import {
+  Donut,
+  HBarChart,
+  ScoreHistogram,
+  TrendChart,
+} from "@/components/charts";
 import { getGoogleAccessToken } from "@/lib/googleDrive";
 import { getFormInfo, listFormResponses } from "@/lib/googleForms";
 
@@ -117,10 +122,36 @@ async function buildQuizReports(
   return { reports: [...native, ...legacyReports], tokenMissing: false };
 }
 
+/** Weekly activity buckets for the trend chart; bucket 7 = week ending today. */
+function buildActivityTrend(lessonDates: Date[], quizDates: Date[]) {
+  const WEEKS = 8;
+  const weekMs = 7 * 24 * 3600 * 1000;
+  const now = Date.now();
+  const lessonTrend: number[] = Array(WEEKS).fill(0);
+  const quizTrend: number[] = Array(WEEKS).fill(0);
+  const bucketFor = (d: Date): number | null => {
+    const idx = WEEKS - 1 - Math.floor((now - d.getTime()) / weekMs);
+    return idx >= 0 && idx < WEEKS ? idx : null;
+  };
+  for (const d of lessonDates) {
+    const i = bucketFor(d);
+    if (i !== null) lessonTrend[i]++;
+  }
+  for (const d of quizDates) {
+    const i = bucketFor(d);
+    if (i !== null) quizTrend[i]++;
+  }
+  const fmt = new Intl.DateTimeFormat("en", { month: "short", day: "numeric" });
+  const buckets = Array.from({ length: WEEKS }, (_, i) =>
+    fmt.format(new Date(now - (WEEKS - 1 - i) * weekMs))
+  );
+  return { buckets, lessonTrend, quizTrend };
+}
+
 export default async function ReportsPage() {
   const me = await requireAdminPage();
 
-  const [courses, users, progress] = await Promise.all([
+  const [courses, users, progress, allSubmissions] = await Promise.all([
     prisma.course.findMany({
       include: {
         modules: {
@@ -136,7 +167,10 @@ export default async function ReportsPage() {
       orderBy: { name: "asc" },
     }),
     prisma.progress.findMany({
-      select: { userId: true, lessonId: true },
+      select: { userId: true, lessonId: true, completedAt: true },
+    }),
+    prisma.quizSubmission.findMany({
+      select: { score: true, totalPoints: true, createdAt: true },
     }),
   ]);
 
@@ -239,6 +273,32 @@ export default async function ReportsPage() {
   }
   const pairsTotal = pairsDone + pairsActive + pairsIdle;
 
+  const {
+    buckets: trendBuckets,
+    lessonTrend,
+    quizTrend,
+  } = buildActivityTrend(
+    progress.map((p) => p.completedAt),
+    allSubmissions.map((s) => s.createdAt)
+  );
+
+  // Headline stats.
+  const totalLessons = courses.reduce(
+    (s, c) => s + c.modules.reduce((a, m) => a + m.lessons.length, 0),
+    0
+  );
+  const gradedSubs = allSubmissions.filter((s) => s.totalPoints > 0);
+  const avgQuizPct =
+    gradedSubs.length === 0
+      ? null
+      : Math.round(
+          (gradedSubs.reduce((s, x) => s + x.score / x.totalPoints, 0) /
+            gradedSubs.length) *
+            100
+        );
+  const overallCompletion =
+    pairsTotal === 0 ? 0 : Math.round((pairsDone / pairsTotal) * 100);
+
   const { reports: quizReports, tokenMissing } = await buildQuizReports(
     me.id,
     users
@@ -266,6 +326,50 @@ export default async function ReportsPage() {
       <p className="mt-1 text-sm text-neutral-500">
         Completion across all {users.length} people who have signed in.
       </p>
+
+      {/* Headline stats */}
+      <section className="mt-8 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+        <StatTile label="Active courses" value={String(courses.length)} />
+        <StatTile label="Lessons" value={String(totalLessons)} />
+        <StatTile label="Active learners" value={String(users.length)} />
+        <StatTile
+          label="Overall completion"
+          value={`${overallCompletion}%`}
+          accent={overallCompletion >= 70 ? "good" : "brand"}
+        />
+        <StatTile
+          label="Avg quiz score"
+          value={avgQuizPct === null ? "—" : `${avgQuizPct}%`}
+          accent={avgQuizPct !== null && avgQuizPct >= 70 ? "good" : "brand"}
+        />
+      </section>
+
+      {/* Activity trend */}
+      <section className="mt-4 rounded-xl border border-neutral-200 bg-white p-5">
+        <h2 className="text-[15px] font-semibold tracking-tight">
+          Activity trend
+        </h2>
+        <p className="mt-0.5 mb-4 text-xs text-neutral-500">
+          Weekly lesson completions and quiz submissions, last 8 weeks.
+        </p>
+        <TrendChart
+          buckets={trendBuckets}
+          series={[
+            {
+              label: "Lessons completed",
+              color: "#EA580C",
+              values: lessonTrend,
+              total: lessonTrend.reduce((a, b) => a + b, 0),
+            },
+            {
+              label: "Quiz submissions",
+              color: "#0D9488",
+              values: quizTrend,
+              total: quizTrend.reduce((a, b) => a + b, 0),
+            },
+          ]}
+        />
+      </section>
 
       {/* At a glance */}
       <section className="mt-8 grid gap-4 lg:grid-cols-2">
@@ -468,42 +572,42 @@ export default async function ReportsPage() {
                       </a>
                     )}
                   </div>
-                  {q.totalPoints !== null &&
-                    q.totalPoints > 0 &&
-                    q.rows.filter((r) => r.score !== null).length > 0 && (
-                      <div className="flex flex-wrap items-center gap-8 border-b border-neutral-100 px-5 py-4">
-                        <div>
-                          <div className="font-mono text-[10px] tracking-[0.14em] text-neutral-500">
-                            AVERAGE
-                          </div>
-                          <div className="mt-1 text-2xl font-semibold tracking-tight">
-                            {Math.round(
-                              (q.rows
-                                .filter((r) => r.score !== null)
-                                .reduce((s, r) => s + (r.score ?? 0), 0) /
-                                q.rows.filter((r) => r.score !== null).length /
-                                q.totalPoints) *
-                                100
-                            )}
-                            %
-                          </div>
+                  {(() => {
+                    if (q.totalPoints === null || q.totalPoints === 0)
+                      return null;
+                    const pcts = q.rows
+                      .filter((r) => r.score !== null)
+                      .map((r) =>
+                        Math.round(((r.score ?? 0) / q.totalPoints!) * 100)
+                      );
+                    if (pcts.length === 0) return null;
+                    const avg = Math.round(
+                      pcts.reduce((a, b) => a + b, 0) / pcts.length
+                    );
+                    const passRate = Math.round(
+                      (pcts.filter((p) => p >= 70).length / pcts.length) * 100
+                    );
+                    return (
+                      <div className="flex flex-wrap items-center gap-x-10 gap-y-4 border-b border-neutral-100 px-5 py-4">
+                        <div className="flex gap-8">
+                          <QuizStat label="AVERAGE" value={`${avg}%`} good={avg >= 70} />
+                          <QuizStat
+                            label="PASS RATE ≥70%"
+                            value={`${passRate}%`}
+                            good={passRate >= 70}
+                          />
+                          <QuizStat label="HIGHEST" value={`${Math.max(...pcts)}%`} />
+                          <QuizStat label="LOWEST" value={`${Math.min(...pcts)}%`} />
                         </div>
                         <div className="min-w-0">
                           <div className="mb-1 font-mono text-[10px] tracking-[0.14em] text-neutral-500">
                             SCORE DISTRIBUTION
                           </div>
-                          <ScoreHistogram
-                            percents={q.rows
-                              .filter((r) => r.score !== null)
-                              .map((r) =>
-                                Math.round(
-                                  ((r.score ?? 0) / q.totalPoints!) * 100
-                                )
-                              )}
-                          />
+                          <ScoreHistogram percents={pcts} />
                         </div>
                       </div>
-                    )}
+                    );
+                  })()}
                   {q.error ? (
                     <div className="px-5 py-4 text-[13px] text-amber-700">
                       {q.error}
@@ -569,6 +673,58 @@ export default async function ReportsPage() {
         <ContentRankCard title="Most completed content" rows={most} />
         <ContentRankCard title="Least completed content" rows={least} accent="low" />
       </section>
+    </div>
+  );
+}
+
+function StatTile({
+  label,
+  value,
+  accent,
+}: {
+  label: string;
+  value: string;
+  accent?: "good" | "brand";
+}) {
+  return (
+    <div className="rounded-xl border border-neutral-200 bg-white p-4">
+      <div className="text-[12px] text-neutral-500">{label}</div>
+      <div
+        className={`mt-1 text-[26px] font-semibold tracking-tight ${
+          accent === "good"
+            ? "text-pine-700"
+            : accent === "brand"
+              ? "text-brand-700"
+              : "text-neutral-900"
+        }`}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function QuizStat({
+  label,
+  value,
+  good,
+}: {
+  label: string;
+  value: string;
+  good?: boolean;
+}) {
+  return (
+    <div>
+      <div className="font-mono text-[10px] tracking-[0.14em] text-neutral-500">
+        {label}
+      </div>
+      <div
+        className={`mt-1 text-2xl font-semibold tracking-tight ${
+          good === undefined ? "" : good ? "text-pine-700" : "text-brand-700"
+        }`}
+      >
+        {value}
+      </div>
     </div>
   );
 }

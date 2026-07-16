@@ -206,6 +206,118 @@ export function Donut({
   );
 }
 
+/** Two-series line chart for weekly activity trends. */
+export function TrendChart({
+  buckets,
+  series,
+}: {
+  buckets: string[]; // x labels, one per bucket
+  series: { label: string; color: string; values: number[]; total: number }[];
+}) {
+  const plotW = 620;
+  const plotH = 150;
+  const padL = 34;
+  const padB = 24;
+  const padT = 12;
+  const width = padL + plotW;
+  const height = padT + plotH + padB;
+  const n = buckets.length;
+  const rawMax = Math.max(...series.flatMap((s) => s.values), 1);
+  // Round the axis top to a clean number.
+  const step = rawMax <= 5 ? 1 : rawMax <= 10 ? 2 : rawMax <= 25 ? 5 : rawMax <= 50 ? 10 : 25;
+  const yMax = Math.ceil(rawMax / step) * step;
+  const x = (i: number) => padL + (n === 1 ? plotW / 2 : (i / (n - 1)) * plotW);
+  const y = (v: number) => padT + plotH - (v / yMax) * plotH;
+  const ticks = [0, yMax / 2, yMax];
+
+  return (
+    <div className="flex flex-wrap items-center gap-6">
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        className="min-w-0 flex-1"
+        role="img"
+        aria-label="Activity trend"
+      >
+        {ticks.map((t) => (
+          <g key={t}>
+            <line
+              x1={padL}
+              y1={y(t)}
+              x2={padL + plotW}
+              y2={y(t)}
+              stroke="#EEEDEB"
+              strokeWidth="1"
+            />
+            <text
+              x={padL - 8}
+              y={y(t) + 3.5}
+              textAnchor="end"
+              fontSize="10"
+              fontFamily="var(--font-mono)"
+              fill={INK_MUTED}
+            >
+              {t}
+            </text>
+          </g>
+        ))}
+        {buckets.map((b, i) => (
+          <text
+            key={b}
+            x={x(i)}
+            y={padT + plotH + 16}
+            textAnchor="middle"
+            fontSize="9.5"
+            fontFamily="var(--font-mono)"
+            fill={INK_MUTED}
+          >
+            {b}
+          </text>
+        ))}
+        {series.map((s) => (
+          <g key={s.label}>
+            <path
+              d={s.values
+                .map((v, i) => `${i === 0 ? "M" : "L"}${x(i)},${y(v)}`)
+                .join(" ")}
+              fill="none"
+              stroke={s.color}
+              strokeWidth="2"
+              strokeLinejoin="round"
+              strokeLinecap="round"
+            />
+            {s.values.map((v, i) => (
+              <circle
+                key={i}
+                cx={x(i)}
+                cy={y(v)}
+                r="4"
+                fill={s.color}
+                stroke="#FFFFFF"
+                strokeWidth="2"
+              >
+                <title>{`${s.label} · ${buckets[i]}: ${v}`}</title>
+              </circle>
+            ))}
+          </g>
+        ))}
+      </svg>
+
+      <div className="space-y-3">
+        {series.map((s) => (
+          <div key={s.label} className="flex items-center gap-2.5 border-l-2 pl-3" style={{ borderColor: s.color }}>
+            <div>
+              <div className="text-[13px] text-neutral-700">{s.label}</div>
+              <div className="font-mono text-lg font-semibold tracking-tight">
+                {s.total}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /** Score-distribution histogram: five percent buckets, single hue. */
 export function ScoreHistogram({
   percents,
