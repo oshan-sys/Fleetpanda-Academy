@@ -1,9 +1,9 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOutAction } from "@/lib/actions/auth";
+import Logo from "@/components/Logo";
 
 const learnerNav = [
   { href: "/", label: "Dashboard", icon: GridIcon },
@@ -42,7 +42,7 @@ export default function Sidebar({
   return (
     <aside className="sticky top-0 flex h-screen w-60 shrink-0 flex-col gap-0.5 bg-neutral-950 px-3 py-5 text-neutral-50">
       <div className="flex items-center gap-2.5 px-2 pb-5">
-        <Image src="/logo-icon.png" alt="FleetPanda" width={30} height={30} />
+        <Logo size={30} />
         <div>
           <div className="text-base font-semibold tracking-tight">
             <span className="text-brand-500">Fleet</span>Panda

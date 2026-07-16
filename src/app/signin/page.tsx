@@ -1,7 +1,7 @@
-import Image from "next/image";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { signInWithGoogle } from "@/lib/actions/auth";
+import Logo from "@/components/Logo";
 
 export default async function SignInPage() {
   const session = await auth();
@@ -11,7 +11,7 @@ export default async function SignInPage() {
     <div className="flex min-h-screen items-center justify-center bg-neutral-950 p-6">
       <div className="w-full max-w-sm rounded-2xl bg-white p-8 shadow-xl">
         <div className="flex items-center gap-3">
-          <Image src="/logo-icon.png" alt="FleetPanda" width={36} height={36} />
+          <Logo size={36} />
           <div>
             <div className="text-lg font-semibold tracking-tight">
               <span className="text-brand-600">Fleet</span>Panda
