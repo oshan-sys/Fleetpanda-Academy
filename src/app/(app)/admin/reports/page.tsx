@@ -2,13 +2,18 @@ import { requireAdminPage } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
 import { ProgressBar } from "@/components/ProgressBar";
+import { Donut, HBarChart, ScoreHistogram } from "@/components/charts";
 import { getGoogleAccessToken } from "@/lib/googleDrive";
 import { getFormInfo, listFormResponses } from "@/lib/googleForms";
 
 interface QuizReport {
+  lessonId: string;
   lessonTitle: string;
+  moduleTitle: string;
   courseTitle: string;
   totalPoints: number | null;
+  /** Native (imported) quizzes support CSV export. */
+  isNative: boolean;
   error?: string;
   rows: {
     name: string | null;
@@ -43,9 +48,12 @@ async function buildQuizReports(
     .map((lesson): QuizReport => {
       const quiz = lesson.quizData as unknown as { totalPoints: number };
       return {
+        lessonId: lesson.id,
         lessonTitle: lesson.title,
+        moduleTitle: lesson.module.title,
         courseTitle: lesson.module.course.title,
         totalPoints: quiz.totalPoints || null,
+        isNative: true,
         rows: lesson.submissions.map((s) => ({
           name: s.user.name,
           email: s.user.email ?? "",
@@ -70,8 +78,11 @@ async function buildQuizReports(
   const legacyReports = await Promise.all(
     legacy.map(async (lesson): Promise<QuizReport> => {
       const base = {
+        lessonId: lesson.id,
         lessonTitle: lesson.title,
+        moduleTitle: lesson.module.title,
         courseTitle: lesson.module.course.title,
+        isNative: false,
       };
       const [info, resp] = await Promise.all([
         getFormInfo(token, lesson.formId!),
@@ -205,6 +216,29 @@ export default async function ReportsPage() {
     return { user: u, visibleLessons, completed, coursesStarted, coursesCompleted };
   });
 
+  // Learner–course pairs by status, for the overview donut.
+  let pairsDone = 0;
+  let pairsActive = 0;
+  let pairsIdle = 0;
+  for (const u of users) {
+    const done = doneByUser.get(u.id) ?? new Set<string>();
+    for (const { course } of courseStats) {
+      const visible =
+        course.assignments.length === 0 ||
+        course.assignments.some((a) => a.userId === u.id);
+      if (!visible) continue;
+      const lessonIds = course.modules.flatMap((m) =>
+        m.lessons.map((l) => l.id)
+      );
+      if (lessonIds.length === 0) continue;
+      const doneHere = lessonIds.filter((id) => done.has(id)).length;
+      if (doneHere === lessonIds.length) pairsDone++;
+      else if (doneHere > 0) pairsActive++;
+      else pairsIdle++;
+    }
+  }
+  const pairsTotal = pairsDone + pairsActive + pairsIdle;
+
   const { reports: quizReports, tokenMissing } = await buildQuizReports(
     me.id,
     users
@@ -232,6 +266,46 @@ export default async function ReportsPage() {
       <p className="mt-1 text-sm text-neutral-500">
         Completion across all {users.length} people who have signed in.
       </p>
+
+      {/* At a glance */}
+      <section className="mt-8 grid gap-4 lg:grid-cols-2">
+        <div className="rounded-xl border border-neutral-200 bg-white p-5">
+          <h2 className="text-[15px] font-semibold tracking-tight">
+            Course enrollments by status
+          </h2>
+          <p className="mt-0.5 mb-4 text-xs text-neutral-500">
+            Every learner–course combination, by how far along it is.
+          </p>
+          <Donut
+            segments={[
+              { label: "Completed", count: pairsDone, color: "#0D9488" },
+              { label: "In progress", count: pairsActive, color: "#EA580C" },
+              { label: "Not started", count: pairsIdle, color: "#E7E5E4" },
+            ]}
+            centerValue={
+              pairsTotal === 0
+                ? "—"
+                : `${Math.round((pairsDone / pairsTotal) * 100)}%`
+            }
+            centerLabel="completed"
+          />
+        </div>
+        <div className="rounded-xl border border-neutral-200 bg-white p-5">
+          <h2 className="text-[15px] font-semibold tracking-tight">
+            Completion rate by course
+          </h2>
+          <p className="mt-0.5 mb-4 text-xs text-neutral-500">
+            Lessons completed as a share of all lessons × enrolled learners.
+          </p>
+          <HBarChart
+            items={courseStats.map((c) => ({
+              label: c.course.title,
+              value: c.rate,
+              display: `${Math.round(c.rate * 100)}%`,
+            }))}
+          />
+        </div>
+      </section>
 
       {/* Per-course completion */}
       <section className="mt-8">
@@ -289,9 +363,18 @@ export default async function ReportsPage() {
 
       {/* Per-learner table */}
       <section className="mt-10">
-        <h2 className="mb-3 text-base font-semibold tracking-tight">
-          Progress by learner
-        </h2>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-base font-semibold tracking-tight">
+            Progress by learner
+          </h2>
+          <a
+            href="/api/reports/learners/csv"
+            download
+            className="rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-[12px] font-medium text-neutral-700 transition hover:bg-neutral-100"
+          >
+            Export CSV ↓
+          </a>
+        </div>
         <div className="overflow-hidden rounded-xl border border-neutral-200 bg-white">
           <table className="w-full text-left text-sm">
             <thead>
@@ -361,19 +444,66 @@ export default async function ReportsPage() {
                   key={i}
                   className="overflow-hidden rounded-xl border border-neutral-200 bg-white"
                 >
-                  <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-neutral-100 px-5 py-3.5">
-                    <span className="text-[15px] font-semibold">
-                      {q.lessonTitle}
-                    </span>
-                    <span className="text-xs text-neutral-400">
-                      {q.courseTitle}
-                    </span>
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-neutral-100 px-5 py-3.5">
+                    <div className="min-w-0">
+                      <div className="text-[15px] font-semibold">
+                        {q.lessonTitle}
+                      </div>
+                      <div className="text-xs text-neutral-400">
+                        {q.courseTitle} · {q.moduleTitle}
+                      </div>
+                    </div>
                     <span className="ml-auto font-mono text-xs text-neutral-500">
                       {q.rows.length}{" "}
                       {q.rows.length === 1 ? "submission" : "submissions"}
                       {q.totalPoints ? ` · out of ${q.totalPoints} pts` : ""}
                     </span>
+                    {q.isNative && q.rows.length > 0 && (
+                      <a
+                        href={`/api/reports/quiz/${q.lessonId}/csv`}
+                        download
+                        className="rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-[12px] font-medium text-neutral-700 transition hover:bg-neutral-100"
+                      >
+                        Export CSV ↓
+                      </a>
+                    )}
                   </div>
+                  {q.totalPoints !== null &&
+                    q.totalPoints > 0 &&
+                    q.rows.filter((r) => r.score !== null).length > 0 && (
+                      <div className="flex flex-wrap items-center gap-8 border-b border-neutral-100 px-5 py-4">
+                        <div>
+                          <div className="font-mono text-[10px] tracking-[0.14em] text-neutral-500">
+                            AVERAGE
+                          </div>
+                          <div className="mt-1 text-2xl font-semibold tracking-tight">
+                            {Math.round(
+                              (q.rows
+                                .filter((r) => r.score !== null)
+                                .reduce((s, r) => s + (r.score ?? 0), 0) /
+                                q.rows.filter((r) => r.score !== null).length /
+                                q.totalPoints) *
+                                100
+                            )}
+                            %
+                          </div>
+                        </div>
+                        <div className="min-w-0">
+                          <div className="mb-1 font-mono text-[10px] tracking-[0.14em] text-neutral-500">
+                            SCORE DISTRIBUTION
+                          </div>
+                          <ScoreHistogram
+                            percents={q.rows
+                              .filter((r) => r.score !== null)
+                              .map((r) =>
+                                Math.round(
+                                  ((r.score ?? 0) / q.totalPoints!) * 100
+                                )
+                              )}
+                          />
+                        </div>
+                      </div>
+                    )}
                   {q.error ? (
                     <div className="px-5 py-4 text-[13px] text-amber-700">
                       {q.error}
